@@ -10,7 +10,8 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                checkout scm
+                git branch: 'main',
+                    url: 'https://github.com/YOUR_GITHUB_USERNAME/food-waste-portal.git'
             }
         }
 
@@ -82,12 +83,9 @@ pipeline {
                         )
 
                         if (result != 0) {
-                            echo 'Rollout failed. Rolling back...'
-
                             bat 'kubectl rollout undo deployment/%DEPLOYMENT%'
                             bat 'kubectl rollout status deployment/%DEPLOYMENT% --timeout=90s'
-
-                            error('Faulty deployment rolled back successfully.')
+                            error('Rollout failed. Previous release restored.')
                         }
                     }
                 }
