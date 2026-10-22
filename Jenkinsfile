@@ -10,8 +10,7 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                git branch: 'main',
-                    url: 'https://github.com/Vallabh04022006/food-waste-portal.git'
+                checkout scm
             }
         }
 
@@ -34,8 +33,10 @@ pipeline {
 
         stage('Archive Artifacts') {
             steps {
-                archiveArtifacts artifacts: 'index.html,Dockerfile,deployment.yaml',
-                                 fingerprint: true
+                archiveArtifacts(
+                    artifacts: 'index.html,Dockerfile,deployment.yaml',
+                    fingerprint: true
+                )
             }
         }
 
@@ -49,8 +50,12 @@ pipeline {
                     )
                 ]) {
                     bat '''
-                    echo %DOCKER_TOKEN% | docker login -u %DOCKER_USER% --password-stdin
+                    @echo off
+                    powershell -NoProfile -Command "$env:DOCKER_TOKEN | docker login -u $env:DOCKER_USER --password-stdin; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }"
+                    if errorlevel 1 exit /b 1
+
                     docker push %IMAGE%:%BUILD_NUMBER%
+                    if errorlevel 1 exit /b 1
                     '''
                 }
             }
@@ -59,11 +64,12 @@ pipeline {
         stage('Deploy to Kubernetes') {
             steps {
                 withCredentials([
-                    file(credentialsId: 'kubeconfig',
-                         variable: 'KUBECONFIG')
+                    file(
+                        credentialsId: 'kubeconfig',
+                        variable: 'KUBECONFIG'
+                    )
                 ]) {
                     bat '''
-                    kubectl apply -f deployment.yaml
                     kubectl set image deployment/%DEPLOYMENT% food-waste=%IMAGE%:%BUILD_NUMBER%
                     '''
                 }
@@ -73,8 +79,10 @@ pipeline {
         stage('Verify Rollout') {
             steps {
                 withCredentials([
-                    file(credentialsId: 'kubeconfig',
-                         variable: 'KUBECONFIG')
+                    file(
+                        credentialsId: 'kubeconfig',
+                        variable: 'KUBECONFIG'
+                    )
                 ]) {
                     script {
                         int result = bat(
@@ -83,9 +91,42 @@ pipeline {
                         )
 
                         if (result != 0) {
+
+                            echo '======================================'
+                            echo 'FAULTY DEPLOYMENT DETECTED!'
+                            echo 'STARTING AUTOMATIC ROLLBACK...'
+                            echo '======================================'
+
                             bat 'kubectl rollout undo deployment/%DEPLOYMENT%'
-                            bat 'kubectl rollout status deployment/%DEPLOYMENT% --timeout=90s'
-                            error('Rollout failed. Previous release restored.')
+
+                            int rollbackResult = bat(
+                                script: 'kubectl rollout status deployment/%DEPLOYMENT% --timeout=90s',
+                                returnStatus: true
+                            )
+
+                            if (rollbackResult == 0) {
+
+                                echo '======================================'
+                                echo 'ROLLBACK SUCCESSFUL!'
+                                echo 'PREVIOUS DEPLOYMENT RESTORED!'
+                                echo '======================================'
+
+                                bat 'kubectl get deployment %DEPLOYMENT%'
+                                bat 'kubectl get pods'
+
+                                currentBuild.description = 'Automatic rollback successful'
+
+                            } else {
+                                error('ROLLBACK FAILED! Check Kubernetes.')
+                            }
+
+                        } else {
+
+                            echo '======================================'
+                            echo 'DEPLOYMENT SUCCESSFUL!'
+                            echo 'APPLICATION IS RUNNING!'
+                            echo '======================================'
+
                         }
                     }
                 }
