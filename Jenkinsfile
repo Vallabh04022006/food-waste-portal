@@ -11,7 +11,7 @@ pipeline {
         stage('Checkout') {
             steps {
                 git branch: 'main',
-                    url: 'https://github.com/YOUR_GITHUB_USERNAME/food-waste-portal.git'
+                    url: 'https://github.com/Vallabh04022006/food-waste-portal.git'
             }
         }
 
